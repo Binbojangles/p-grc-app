@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GRC API Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        button {
+            padding: 10px;
+            margin: 5px;
+            cursor: pointer;
+        }
+        pre {
+            background-color: #f5f5f5;
+            padding: 10px;
+            border-radius: 5px;
+            overflow-x: auto;
+        }
+    </style>
+</head>
+<body>
+    <h1>GRC API Test</h1>
+    
+    <div>
+        <h2>Login</h2>
+        <button id="loginBtn">Login as Admin</button>
+        <pre id="loginResult"></pre>
+    </div>
+    
+    <div>
+        <h2>Get Controls</h2>
+        <button id="controlsBtn" disabled>Get Controls</button>
+        <pre id="controlsResult"></pre>
+    </div>
+    
+    <script>
+        let authToken = '';
+        
+        document.getElementById('loginBtn').addEventListener('click', async () => {
+            const loginResult = document.getElementById('loginResult');
+            loginResult.textContent = 'Loading...';
+            
+            try {
+                const response = await fetch('http://localhost:3001/api/auth/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        email: 'admin@example.com',
+                        password: 'Admin123!'
+                    })
+                });
+                
+                const data = await response.json();
+                loginResult.textContent = JSON.stringify(data, null, 2);
+                
+                if (data.token) {
+                    authToken = data.token;
+                    document.getElementById('controlsBtn').disabled = false;
+                }
+            } catch (error) {
+                loginResult.textContent = 'Error: ' + error.message;
+            }
+        });
+        
+        document.getElementById('controlsBtn').addEventListener('click', async () => {
+            const controlsResult = document.getElementById('controlsResult');
+            controlsResult.textContent = 'Loading...';
+            
+            try {
+                const response = await fetch('http://localhost:3001/api/controls', {
+                    method: 'GET',
+                    headers: {
+                        'x-auth-token': authToken
+                    }
+                });
+                
+                const data = await response.json();
+                controlsResult.textContent = JSON.stringify(data, null, 2);
+            } catch (error) {
+                controlsResult.textContent = 'Error: ' + error.message;
+            }
+        });
+    </script>
+</body>
+</html> 

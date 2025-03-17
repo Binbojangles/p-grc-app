@@ -1,0 +1,67 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: grc_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres123
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - grc-network
+
+  # Backend API server
+  api:
+    build:
+      context: ./app/server
+      dockerfile: Dockerfile
+    environment:
+      - NODE_ENV=development
+      - PORT=3000
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_NAME=grc_db
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres123
+      - JWT_SECRET=your_jwt_secret_key
+      - JWT_EXPIRATION=1h
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./cmmc_level1_controls.json:/app/cmmc_level1_controls.json
+      - ./cmmc_level2_controls.json:/app/cmmc_level2_controls.json
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - grc-network
+
+  # Frontend application
+  client:
+    build:
+      context: ./app/client
+      dockerfile: Dockerfile
+    ports:
+      - "80:80"
+    depends_on:
+      - api
+    networks:
+      - grc-network
+
+volumes:
+  postgres_data:
+    name: grc-postgres-data
+
+networks:
+  grc-network:
+    driver: bridge 
