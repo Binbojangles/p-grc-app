@@ -35,6 +35,11 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.TEXT,
       allowNull: true
     },
+    evidenceFile: {
+      type: DataTypes.STRING,
+      allowNull: true,
+      comment: 'Path to uploaded evidence file'
+    },
     findings: {
       type: DataTypes.TEXT
     },

@@ -38,6 +38,14 @@ module.exports = (sequelize) => {
     },
     salt: {
       type: DataTypes.STRING
+    },
+    phone: {
+      type: DataTypes.STRING,
+      allowNull: true
+    },
+    department: {
+      type: DataTypes.STRING,
+      allowNull: true
     }
   }, {
     timestamps: true
@@ -66,6 +74,14 @@ module.exports = (sequelize) => {
       .pbkdf2Sync(password, this.salt, 1000, 64, 'sha512')
       .toString('hex');
     return this.password === hash;
+  };
+
+  // Method to set password
+  User.prototype.setPassword = function(password) {
+    this.salt = crypto.randomBytes(16).toString('hex');
+    this.password = crypto
+      .pbkdf2Sync(password, this.salt, 1000, 64, 'sha512')
+      .toString('hex');
   };
 
   // Define associations

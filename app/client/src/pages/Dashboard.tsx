@@ -11,12 +11,28 @@ import {
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
+import { 
+  PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, 
+  CartesianGrid, Tooltip, Legend, ResponsiveContainer, 
+  LineChart, Line 
+} from 'recharts';
 import PageHeader from '../components/PageHeader';
 import { controlsService, tasksService } from '../services/api';
 
 const Dashboard: React.FC = () => {
   const theme = useTheme();
   const navigate = useNavigate();
+
+  // Chart colors
+  const CHART_COLORS = {
+    implemented: theme.palette.success.main,
+    partiallyImplemented: theme.palette.warning.main,
+    notImplemented: theme.palette.error.main,
+    inProgress: theme.palette.primary.main,
+    completed: theme.palette.success.main,
+    pending: theme.palette.grey[400],
+    overdue: theme.palette.error.main
+  };
 
   // Fetch controls data
   const { data: controls = [], isLoading: controlsLoading } = useQuery({
@@ -54,6 +70,51 @@ const Dashboard: React.FC = () => {
       return dueDate < new Date() && task.status !== 'completed';
     }).length
   };
+
+  // Prepare data for charts
+  const controlStatusData = [
+    { name: 'Implemented', value: controlStats.implemented, color: CHART_COLORS.implemented },
+    { name: 'Partially', value: controlStats.partiallyImplemented, color: CHART_COLORS.partiallyImplemented },
+    { name: 'Not Implemented', value: controlStats.notImplemented, color: CHART_COLORS.notImplemented }
+  ];
+
+  const taskStatusData = [
+    { name: 'Completed', value: taskStats.completed, color: CHART_COLORS.completed },
+    { name: 'In Progress', value: taskStats.inProgress, color: CHART_COLORS.inProgress },
+    { name: 'Overdue', value: taskStats.overdue, color: CHART_COLORS.overdue }
+  ];
+
+  // Group controls by category
+  const controlCategories = controls.reduce((acc, control) => {
+    const category = control.category || 'Uncategorized';
+    if (!acc[category]) {
+      acc[category] = {
+        total: 0,
+        implemented: 0,
+        partiallyImplemented: 0,
+        notImplemented: 0
+      };
+    }
+    acc[category].total += 1;
+    
+    if (control.implementationStatus === 'implemented') {
+      acc[category].implemented += 1;
+    } else if (control.implementationStatus === 'partially-implemented') {
+      acc[category].partiallyImplemented += 1;
+    } else if (control.implementationStatus === 'not-implemented') {
+      acc[category].notImplemented += 1;
+    }
+    
+    return acc;
+  }, {} as Record<string, { total: number, implemented: number, partiallyImplemented: number, notImplemented: number }>);
+
+  // Convert categories data to chart format
+  const categoryChartData = Object.entries(controlCategories).map(([category, stats]) => ({
+    name: category,
+    Implemented: stats.implemented,
+    'Partially Implemented': stats.partiallyImplemented,
+    'Not Implemented': stats.notImplemented
+  }));
 
   // Implementation progress percentage
   const implementationProgress = controlStats.total > 0 
@@ -116,6 +177,40 @@ const Dashboard: React.FC = () => {
         variant="outlined" 
       />
     );
+  };
+
+  // Custom tooltip for charts
+  const CustomTooltip = ({ active, payload, label }: any) => {
+    if (active && payload && payload.length) {
+      return (
+        <Paper
+          elevation={3}
+          sx={{ p: 1.5, borderRadius: 1, maxWidth: 200 }}
+        >
+          {label && <Typography variant="subtitle2">{label}</Typography>}
+          {payload.map((entry: any, index: number) => (
+            <Box key={`item-${index}`} sx={{ display: 'flex', alignItems: 'center', my: 0.5 }}>
+              <Box
+                sx={{
+                  width: 12,
+                  height: 12,
+                  borderRadius: '50%',
+                  backgroundColor: entry.color || entry.fill,
+                  mr: 1,
+                }}
+              />
+              <Typography variant="body2" component="span" sx={{ mr: 1 }}>
+                {entry.name}:
+              </Typography>
+              <Typography variant="body2" component="span" fontWeight="bold">
+                {entry.value}
+              </Typography>
+            </Box>
+          ))}
+        </Paper>
+      );
+    }
+    return null;
   };
 
   return (
@@ -330,6 +425,140 @@ const Dashboard: React.FC = () => {
         </Grid>
       </Grid>
 
+      {/* Charts and Metrics Section */}
+      <Grid container spacing={3} sx={{ mb: 4 }}>
+        {/* Control Implementation Status Chart */}
+        <Grid item xs={12} md={6}>
+          <Paper
+            elevation={0}
+            sx={{
+              borderRadius: 2,
+              border: `1px solid ${theme.palette.divider}`,
+              p: 3,
+              height: '100%',
+            }}
+          >
+            <Typography variant="h6" gutterBottom>Control Implementation Status</Typography>
+            
+            {controlsLoading ? (
+              <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 300 }}>
+                <Typography>Loading chart data...</Typography>
+              </Box>
+            ) : (
+              <ResponsiveContainer width="100%" height={300}>
+                <PieChart>
+                  <Pie
+                    data={controlStatusData}
+                    cx="50%"
+                    cy="50%"
+                    labelLine={false}
+                    label={({ name, percent }) => {
+                      if (percent === 0) return null;
+                      return `${name}: ${(percent * 100).toFixed(0)}%`;
+                    }}
+                    outerRadius={100}
+                    fill="#8884d8"
+                    dataKey="value"
+                  >
+                    {controlStatusData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip content={<CustomTooltip />} />
+                  <Legend />
+                </PieChart>
+              </ResponsiveContainer>
+            )}
+          </Paper>
+        </Grid>
+        
+        {/* Task Status Distribution Chart */}
+        <Grid item xs={12} md={6}>
+          <Paper
+            elevation={0}
+            sx={{
+              borderRadius: 2,
+              border: `1px solid ${theme.palette.divider}`,
+              p: 3,
+              height: '100%',
+            }}
+          >
+            <Typography variant="h6" gutterBottom>Task Status Distribution</Typography>
+            
+            {tasksLoading ? (
+              <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 300 }}>
+                <Typography>Loading chart data...</Typography>
+              </Box>
+            ) : (
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart
+                  data={taskStatusData}
+                  margin={{
+                    top: 20,
+                    right: 30,
+                    left: 20,
+                    bottom: 5,
+                  }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="name" />
+                  <YAxis />
+                  <Tooltip content={<CustomTooltip />} />
+                  <Bar dataKey="value" name="Tasks">
+                    {taskStatusData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.color} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </Paper>
+        </Grid>
+        
+        {/* Controls By Category Chart */}
+        <Grid item xs={12}>
+          <Paper
+            elevation={0}
+            sx={{
+              borderRadius: 2,
+              border: `1px solid ${theme.palette.divider}`,
+              p: 3,
+            }}
+          >
+            <Typography variant="h6" gutterBottom>Controls Implementation by Category</Typography>
+            
+            {controlsLoading || categoryChartData.length === 0 ? (
+              <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 300 }}>
+                <Typography>
+                  {controlsLoading ? 'Loading chart data...' : 'No category data available'}
+                </Typography>
+              </Box>
+            ) : (
+              <ResponsiveContainer width="100%" height={400}>
+                <BarChart
+                  data={categoryChartData}
+                  margin={{
+                    top: 20,
+                    right: 30,
+                    left: 20,
+                    bottom: 5,
+                  }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="name" />
+                  <YAxis />
+                  <Tooltip />
+                  <Legend />
+                  <Bar dataKey="Implemented" stackId="a" fill={CHART_COLORS.implemented} />
+                  <Bar dataKey="Partially Implemented" stackId="a" fill={CHART_COLORS.partiallyImplemented} />
+                  <Bar dataKey="Not Implemented" stackId="a" fill={CHART_COLORS.notImplemented} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </Paper>
+        </Grid>
+      </Grid>
+
       {/* Recent Activities */}
       <Grid container spacing={3}>
         {/* Tasks due soon */}
@@ -478,6 +707,83 @@ const Dashboard: React.FC = () => {
                 View All Controls
               </Button>
             </Box>
+          </Paper>
+        </Grid>
+        
+        {/* Upcoming Reviews Timeline */}
+        <Grid item xs={12}>
+          <Paper
+            elevation={0}
+            sx={{
+              borderRadius: 2,
+              border: `1px solid ${theme.palette.divider}`,
+              overflow: 'hidden',
+            }}
+          >
+            <Box sx={{ p: 2, bgcolor: 'background.paper' }}>
+              <Typography variant="h6">Upcoming Reviews Timeline</Typography>
+            </Box>
+            
+            <Divider />
+            
+            {controlsLoading ? (
+              <Box sx={{ p: 2 }}>
+                <Typography>Loading upcoming reviews...</Typography>
+              </Box>
+            ) : (
+              <Box sx={{ p: 2 }}>
+                {/* Create a horizontal timeline of upcoming reviews */}
+                <Box sx={{ position: 'relative', mt: 3, mb: 4 }}>
+                  {/* Timeline line */}
+                  <Box sx={{ position: 'absolute', top: '50%', left: 0, right: 0, height: 2, bgcolor: theme.palette.divider }} />
+                  
+                  {/* Timeline points */}
+                  <Grid container justifyContent="space-between" position="relative">
+                    {controlsNeedingReview.length === 0 ? (
+                      <Box sx={{ textAlign: 'center', width: '100%', py: 4 }}>
+                        <Typography color="text.secondary">No upcoming reviews scheduled</Typography>
+                      </Box>
+                    ) : (
+                      controlsNeedingReview.map((control, index) => (
+                        <Grid item key={control.id} xs={2} sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                          {/* Date dot */}
+                          <Box
+                            sx={{
+                              width: 12,
+                              height: 12,
+                              borderRadius: '50%',
+                              bgcolor: theme.palette.primary.main,
+                              mb: 1,
+                              zIndex: 1,
+                            }}
+                          />
+                          
+                          {/* Date label */}
+                          <Typography variant="caption" sx={{ textAlign: 'center', fontWeight: 'bold' }}>
+                            {control.nextReviewDate ? format(new Date(control.nextReviewDate), 'MMM d') : 'No date'}
+                          </Typography>
+                          
+                          {/* Control name */}
+                          <Typography variant="body2" sx={{ textAlign: 'center', mt: 1 }}>
+                            {control.title || control.id}
+                          </Typography>
+                        </Grid>
+                      ))
+                    )}
+                  </Grid>
+                </Box>
+                
+                <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2 }}>
+                  <Button 
+                    size="small" 
+                    color="primary"
+                    onClick={() => navigate('/calendar')}
+                  >
+                    View Full Calendar
+                  </Button>
+                </Box>
+              </Box>
+            )}
           </Paper>
         </Grid>
       </Grid>

@@ -20,6 +20,6 @@ echo Backend API: http://localhost:3001
 echo.
 echo Default admin credentials:
 echo Email: admin@example.com
-echo Password: Admin123!
+echo Password: admin123
 echo.
 echo To stop the application, run: stop.bat 

@@ -3,6 +3,12 @@ const router = express.Router();
 const { body, validationResult } = require('express-validator');
 const { Review, User, Control } = require('../models');
 const { authMiddleware, authorize } = require('../middleware/auth');
+const { uploadSingle } = require('../middleware/fileUpload');
+const path = require('path');
+const fs = require('fs');
+
+// Update the evidenceFile path for Docker environment
+const uploadDir = '/app/uploads/evidence';
 
 /**
  * @route   GET /api/reviews
@@ -108,6 +114,7 @@ router.get('/:id', authMiddleware, async (req, res) => {
 router.post('/', [
   authMiddleware,
   authorize(['admin', 'manager']),
+  uploadSingle('evidenceFile'),
   body('controlId').notEmpty().withMessage('Control ID is required'),
   body('reviewerId').notEmpty().withMessage('Reviewer ID is required'),
   body('reviewDate').isISO8601().withMessage('Review date must be a valid date'),
@@ -118,6 +125,15 @@ router.post('/', [
   // Check for validation errors
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
+    // If there was a file uploaded but validation failed, remove it
+    if (req.file) {
+      console.log(`Removing file after validation failure: ${req.file.filename}`);
+      const filePath = path.join(uploadDir, req.file.filename);
+      fs.unlink(filePath, (err) => {
+        if (err) console.error('Error removing file after validation failure:', err);
+      });
+    }
+    
     return res.status(400).json({ 
       success: false, 
       message: 'Validation error', 
@@ -131,35 +147,67 @@ router.post('/', [
       reviewerId, 
       reviewDate, 
       status, 
+      evidence,
       findings, 
       recommendations, 
       nextReviewDate 
     } = req.body;
     
+    console.log('Review creation request body:', {
+      controlId,
+      reviewerId,
+      status,
+      hasFile: !!req.file
+    });
+    
     // Check if control exists
+    if (!controlId) {
+      console.error('Missing controlId in request body');
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Validation error',
+        error: 'Control ID is required' 
+      });
+    }
+    
     const control = await Control.findByPk(controlId);
     if (!control) {
+      console.error(`Control not found with ID: ${controlId}`);
       return res.status(404).json({ 
         success: false, 
-        message: 'Control not found' 
+        message: 'Control not found',
+        error: `No control exists with ID: ${controlId}` 
       });
     }
     
     // Check if reviewer exists
-    const reviewer = await User.findByPk(reviewerId);
-    if (!reviewer) {
-      return res.status(404).json({ 
+    if (!reviewerId) {
+      console.error('Missing reviewerId in request body');
+      return res.status(400).json({ 
         success: false, 
-        message: 'Reviewer not found' 
+        message: 'Validation error',
+        error: 'Reviewer ID is required' 
       });
     }
     
-    // Create new review
+    const reviewer = await User.findByPk(reviewerId);
+    if (!reviewer) {
+      console.error(`Reviewer not found with ID: ${reviewerId}`);
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Reviewer not found',
+        error: `No user exists with ID: ${reviewerId}` 
+      });
+    }
+    
+    // Create new review with file info if uploaded
     const review = await Review.create({
       controlId,
       reviewerId,
       reviewDate,
       status,
+      evidence,
+      evidenceFile: req.file ? req.file.filename : null,
       findings,
       recommendations,
       nextReviewDate
@@ -189,10 +237,19 @@ router.post('/', [
       data: reviewWithAssociations
     });
   } catch (error) {
+    // If there was a file uploaded but an error occurred, remove it
+    if (req.file) {
+      const filePath = path.join(uploadDir, req.file.filename);
+      fs.unlink(filePath, (err) => {
+        if (err) console.error('Error removing file after error:', err);
+      });
+    }
+    
     console.error('Create review error:', error);
     res.status(500).json({ 
       success: false, 
-      message: 'Server error' 
+      message: 'Server error',
+      error: error.message
     });
   }
 });
@@ -205,6 +262,7 @@ router.post('/', [
 router.put('/:id', [
   authMiddleware,
   authorize(['admin', 'manager']),
+  uploadSingle('evidenceFile'),
   body('status').optional().isIn(['compliant', 'non-compliant', 'partially-compliant']).withMessage('Invalid status'),
   body('findings').optional().notEmpty().withMessage('Findings cannot be empty'),
   body('nextReviewDate').optional().isISO8601().withMessage('Next review date must be a valid date')
@@ -212,6 +270,15 @@ router.put('/:id', [
   // Check for validation errors
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
+    // If there was a file uploaded but validation failed, remove it
+    if (req.file) {
+      console.log(`Removing file after validation failure: ${req.file.filename}`);
+      const filePath = path.join(uploadDir, req.file.filename);
+      fs.unlink(filePath, (err) => {
+        if (err) console.error('Error removing file after validation failure:', err);
+      });
+    }
+    
     return res.status(400).json({ 
       success: false, 
       message: 'Validation error', 
@@ -234,6 +301,7 @@ router.put('/:id', [
       reviewerId, 
       reviewDate, 
       status, 
+      evidence,
       findings, 
       recommendations, 
       nextReviewDate 
@@ -248,18 +316,27 @@ router.put('/:id', [
           message: 'Reviewer not found' 
         });
       }
-      review.reviewerId = reviewerId;
     }
     
-    // Update review fields
-    if (reviewDate) review.reviewDate = reviewDate;
-    if (status) review.status = status;
-    if (findings) review.findings = findings;
-    if (recommendations !== undefined) review.recommendations = recommendations;
-    if (nextReviewDate) review.nextReviewDate = nextReviewDate;
+    // If a new file is uploaded, remove old file if it exists
+    if (req.file && review.evidenceFile) {
+      const oldFilePath = path.join(uploadDir, review.evidenceFile);
+      if (fs.existsSync(oldFilePath)) {
+        fs.unlinkSync(oldFilePath);
+      }
+    }
     
-    // Save updated review
-    await review.save();
+    // Update review
+    await review.update({
+      reviewerId: reviewerId || review.reviewerId,
+      reviewDate: reviewDate || review.reviewDate,
+      status: status || review.status,
+      evidence: evidence !== undefined ? evidence : review.evidence,
+      evidenceFile: req.file ? req.file.filename : review.evidenceFile,
+      findings: findings || review.findings,
+      recommendations: recommendations !== undefined ? recommendations : review.recommendations,
+      nextReviewDate: nextReviewDate || review.nextReviewDate
+    });
     
     // If next review date changed, update control's next review date
     if (nextReviewDate) {
@@ -290,10 +367,19 @@ router.put('/:id', [
       data: updatedReview
     });
   } catch (error) {
+    // If there was a file uploaded but an error occurred, remove it
+    if (req.file) {
+      const filePath = path.join(uploadDir, req.file.filename);
+      fs.unlink(filePath, (err) => {
+        if (err) console.error('Error removing file after error:', err);
+      });
+    }
+    
     console.error('Update review error:', error);
     res.status(500).json({ 
       success: false, 
-      message: 'Server error' 
+      message: 'Server error',
+      error: error.message
     });
   }
 });
@@ -427,6 +513,70 @@ router.get('/user/:userId', authMiddleware, async (req, res) => {
     res.status(500).json({ 
       success: false, 
       message: 'Server error' 
+    });
+  }
+});
+
+/**
+ * @route   GET /api/reviews/:id/evidence
+ * @desc    Download evidence file
+ * @access  Private
+ */
+router.get('/:id/evidence', authMiddleware, async (req, res) => {
+  try {
+    console.log(`Download evidence request for review ID: ${req.params.id}`);
+    const review = await Review.findByPk(req.params.id);
+    
+    if (!review) {
+      console.log(`Review not found: ${req.params.id}`);
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Review not found' 
+      });
+    }
+    
+    // Check if user has access to this review
+    if (req.user.role === 'user' && review.reviewerId !== req.user.id) {
+      console.log(`Unauthorized access attempt by user ${req.user.id} for review ${req.params.id}`);
+      return res.status(403).json({ 
+        success: false, 
+        message: 'Not authorized to access this review' 
+      });
+    }
+    
+    // Check if evidence file exists
+    if (!review.evidenceFile) {
+      console.log(`No evidence file found for review ${req.params.id}`);
+      return res.status(404).json({ 
+        success: false, 
+        message: 'No evidence file available' 
+      });
+    }
+    
+    const filePath = path.join(uploadDir, review.evidenceFile);
+    console.log(`Attempting to serve file: ${filePath}`);
+    
+    if (!fs.existsSync(filePath)) {
+      console.error(`File path exists in database but file not found on disk: ${filePath}`);
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Evidence file not found on server' 
+      });
+    }
+    
+    // Get the original file name by removing the timestamp prefix
+    const originalFilename = review.evidenceFile.split('-').slice(2).join('-');
+    const fileExtension = path.extname(review.evidenceFile);
+    const safeFilename = originalFilename || `evidence${fileExtension}`;
+    
+    console.log(`Serving file ${review.evidenceFile} as ${safeFilename}`);
+    res.download(filePath, safeFilename);
+  } catch (error) {
+    console.error('Download evidence error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Server error',
+      details: error.message
     });
   }
 });

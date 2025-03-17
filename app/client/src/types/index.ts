@@ -83,6 +83,7 @@ export interface Review {
   reviewDate?: string;
   status: 'compliant' | 'non-compliant' | 'partially-compliant' | 'not-applicable';
   evidence?: string;
+  evidenceFile?: string;
   findings?: string;
   recommendations?: string;
   nextReviewDate?: string;

@@ -133,16 +133,64 @@ export const reviewsService = {
     const response = await api.get<ApiResponse<Review>>(`/reviews/${id}`);
     return response.data.data;
   },
-  createReview: async (data: CreateReviewInput): Promise<Review> => {
-    const response = await api.post<ApiResponse<Review>>('/reviews', data);
-    return response.data.data;
+  createReview: async (data: CreateReviewInput, evidenceFile?: File): Promise<Review> => {
+    if (evidenceFile) {
+      const formData = new FormData();
+      
+      // Add all review data fields to formData
+      Object.keys(data).forEach(key => {
+        if (data[key as keyof CreateReviewInput] !== null && data[key as keyof CreateReviewInput] !== undefined) {
+          formData.append(key, String(data[key as keyof CreateReviewInput]));
+        }
+      });
+      
+      // Add the file
+      formData.append('evidenceFile', evidenceFile);
+      
+      const response = await api.post<ApiResponse<Review>>('/reviews', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data'
+        }
+      });
+      return response.data.data;
+    } else {
+      const response = await api.post<ApiResponse<Review>>('/reviews', data);
+      return response.data.data;
+    }
   },
-  updateReview: async (id: string, data: Partial<Review>): Promise<Review> => {
-    const response = await api.put<ApiResponse<Review>>(`/reviews/${id}`, data);
-    return response.data.data;
+  updateReview: async (id: string, data: Partial<Review>, evidenceFile?: File): Promise<Review> => {
+    if (evidenceFile) {
+      const formData = new FormData();
+      
+      // Add all review data fields to formData
+      Object.keys(data).forEach(key => {
+        if (data[key as keyof Review] !== null && data[key as keyof Review] !== undefined) {
+          formData.append(key, String(data[key as keyof Review]));
+        }
+      });
+      
+      // Add the file
+      formData.append('evidenceFile', evidenceFile);
+      
+      const response = await api.put<ApiResponse<Review>>(`/reviews/${id}`, formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data'
+        }
+      });
+      return response.data.data;
+    } else {
+      const response = await api.put<ApiResponse<Review>>(`/reviews/${id}`, data);
+      return response.data.data;
+    }
   },
   deleteReview: async (id: string): Promise<void> => {
     await api.delete(`/reviews/${id}`);
+  },
+  downloadEvidenceFile: async (id: string): Promise<Blob> => {
+    const response = await api.get(`/reviews/${id}/evidence`, {
+      responseType: 'blob'
+    });
+    return response.data as Blob;
   },
 };
 

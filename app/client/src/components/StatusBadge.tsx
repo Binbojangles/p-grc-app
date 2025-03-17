@@ -92,6 +92,12 @@ const StatusBadge: React.FC<StatusBadgeProps> = ({ status, type, size = 'medium'
         fontWeight: 'medium',
         fontSize: size === 'small' ? '0.75rem' : '0.875rem',
         height: size === 'small' ? 24 : 32,
+        px: 1,
+        '& .MuiChip-label': {
+          px: 1,
+          whiteSpace: 'nowrap',
+          overflow: 'visible'
+        }
       }}
     />
   );

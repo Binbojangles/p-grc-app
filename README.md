@@ -10,7 +10,14 @@ A comprehensive Governance, Risk, and Compliance (GRC) solution for managing con
 - Filter controls by CMMC level, category, and implementation status
 - Task assignment and tracking
 - Review documentation and evidence collection
+- Secure file upload for compliance evidence with enhanced validation:
+  - Strict file type validation with MIME type and extension cross-checking
+  - Special handling for PDF files across different browsers
+  - Secure file naming to prevent path traversal attacks
+  - 5MB file size limit with clear user feedback
+  - Client-side pre-validation for immediate user feedback
 - Dashboard with compliance status overview
+- Comprehensive reporting capabilities with data visualization
 - Secure authentication with JWT
 - Flexible token authentication supporting both header formats
 - Secure password management with salt-based hashing
@@ -18,7 +25,7 @@ A comprehensive Governance, Risk, and Compliance (GRC) solution for managing con
 
 ## Tech Stack
 
-- **Frontend**: React, TypeScript, Material-UI, React Query
+- **Frontend**: React, TypeScript, Material-UI, React Query, Recharts
 - **Backend**: Node.js, Express, Sequelize ORM
 - **Database**: PostgreSQL
 - **Containerization**: Docker
@@ -130,6 +137,7 @@ grc-app/
 │   │   │   │   ├── controls/  # Controls management
 │   │   │   │   ├── tasks/     # Tasks management
 │   │   │   │   ├── reviews/   # Reviews management
+│   │   │   │   ├── reports/   # Reporting functionality
 │   │   │   │   └── ...
 │   │   │   ├── routes/     # Application routes
 │   │   │   ├── services/   # API services
@@ -149,84 +157,19 @@ grc-app/
 └── README.md               # Project documentation
 ```
 
-## API Documentation
+### Secure File Upload Features
 
-The backend API provides the following endpoints:
+The GRC Solution includes a robust and secure file upload system for evidence attachments:
 
-- **Authentication**
-  - `POST /api/auth/login` - User login
-  - `GET /api/auth/me` - Get current user
-  - `PUT /api/auth/password` - Change user password (authenticated)
-  - `PUT /api/auth/profile` - Update user profile (authenticated)
+* **Strict Validation**: All uploads undergo dual validation checking both MIME type and file extension 
+* **PDF Support**: Special handling for PDF files across different browsers with consistent validation
+* **Secure File Storage**: Files are stored with randomized names to prevent path traversal attacks
+* **Size Limits**: 5MB file size limit with clear user feedback 
+* **Allowed Types**: Support for common document formats (.pdf, .txt, .doc, .docx, .xls, .xlsx)
+* **Client Validation**: Pre-validation happens before upload attempts for immediate user feedback
+* **Error Handling**: Clear, specific error messages guide users when issues occur
+* **Resilient Processing**: Automatic ID selection ensures uploads work even after database resets
+* **File Preview**: Built-in preview capability for PDF, image, and text files without downloading
+* **Responsive Display**: Preview components that adapt to different screen sizes and devices
 
-- **Users**
-  - `GET /api/users` - Get all users (admin only)
-  - `GET /api/users/:id` - Get user by ID (admin only)
-  - `POST /api/users` - Create user (admin only)
-  - `PUT /api/users/:id` - Update user (admin only)
-  - `DELETE /api/users/:id` - Delete user (admin only)
-
-- **Controls**
-  - `GET /api/controls` - Get all controls
-  - `GET /api/controls/:id` - Get control by ID
-  - `POST /api/controls` - Create control (admin/manager)
-  - `PUT /api/controls/:id` - Update control (admin/manager)
-  - `DELETE /api/controls/:id` - Delete control (admin/manager)
-
-- **Tasks**
-  - `GET /api/tasks` - Get all tasks (with optional filters)
-  - `GET /api/tasks/:id` - Get task by ID
-  - `POST /api/tasks` - Create task (admin/manager)
-  - `PUT /api/tasks/:id` - Update task (admin/manager or assigned user)
-  - `DELETE /api/tasks/:id` - Delete task (admin/manager)
-
-- **Reviews**
-  - `GET /api/reviews` - Get all reviews (with optional filters)
-  - `GET /api/reviews/:id` - Get review by ID
-  - `POST /api/reviews` - Create review (admin/manager)
-  - `PUT /api/reviews/:id` - Update review (admin/manager)
-
-## Application Features
-
-### Controls Management
-- View all controls with filtering by level, category, and implementation status
-- Create new controls with detailed information
-- Edit existing controls to update implementation status and other details
-
-### Tasks Management
-- View all tasks with filtering by status, priority, and assignment
-- Create new tasks associated with controls
-- Assign tasks to users and track progress
-
-### Reviews Management
-- Document compliance reviews for controls
-- Track review status (compliant, non-compliant, partially-compliant)
-- Schedule next review dates based on findings
-
-## Rebuilding the Application
-
-To rebuild the application from scratch, run:
-
-```
-docker-compose down -v && docker-compose up --build -d --no-cache
-```
-
-This will:
-1. Stop all containers and remove volumes
-2. Rebuild all images without using cache
-3. Start the application in detached mode
-
-## Security Considerations
-
-- JWT authentication with token expiration
-- Support for both `x-auth-token` and `Authorization: Bearer` token formats
-- Password hashing with crypto module using PBKDF2 algorithm
-- Secure salt generation and management
-- Role-based access control
-- Input validation
-- Security headers
-- CORS configuration
-
-## License
-
-[MIT License](LICENSE) 
+The upload system has been extensively tested across multiple browsers to ensure compatibility with various file formats, particularly PDF files which are commonly used for compliance documentation.

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   Box,
@@ -12,16 +12,29 @@ import {
   Select,
   FormHelperText,
   Alert,
-  SelectChangeEvent
+  AlertTitle,
+  SelectChangeEvent,
+  Typography,
+  IconButton,
+  Stack,
+  Chip
 } from '@mui/material';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import UploadFileIcon from '@mui/icons-material/UploadFile';
+import DeleteIcon from '@mui/icons-material/Delete';
+import AttachFileIcon from '@mui/icons-material/AttachFile';
+import InfoIcon from '@mui/icons-material/Info';
+import ErrorIcon from '@mui/icons-material/Error';
+import { format } from 'date-fns';
+import clsx from 'clsx';
 
 import { reviewsService, controlsService, usersService } from '../../services/api';
 import { Control, User, Review } from '../../types';
 import PageHeader from '../../components/PageHeader';
+import FilePreview from '../../components/FilePreview';
 
 const statuses = [
   { value: 'compliant', label: 'Compliant' },
@@ -51,6 +64,32 @@ const initialFormData: FormData = {
   nextReviewDate: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000) // 90 days from now
 };
 
+// Define the allowed file types and sizes for client validation
+const ALLOWED_FILE_TYPES = [
+  'application/pdf',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'image/jpeg',
+  'image/png',
+  'text/plain'
+];
+
+// Extension to display name mapping for user-friendly messages
+const FILE_TYPE_NAMES = {
+  'application/pdf': 'PDF',
+  'application/msword': 'Word (.doc)',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'Word (.docx)',
+  'application/vnd.ms-excel': 'Excel (.xls)',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'Excel (.xlsx)',
+  'image/jpeg': 'JPEG Image',
+  'image/png': 'PNG Image',
+  'text/plain': 'Text File'
+};
+
+const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB in bytes
+
 const ReviewForm: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const isEditing = Boolean(id);
@@ -59,6 +98,13 @@ const ReviewForm: React.FC = () => {
   
   const [formData, setFormData] = useState<FormData>(initialFormData);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [evidenceFile, setEvidenceFile] = useState<File | null>(null);
+  const [currentEvidenceFile, setCurrentEvidenceFile] = useState<string | null>(null);
+  const [fileError, setFileError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  
+  // Add this new state for file preview
+  const [filePreviewUrl, setFilePreviewUrl] = useState<string | null>(null);
   
   // Fetch review if editing
   const { data: existingReview, isLoading: isLoadingReview } = useQuery({
@@ -80,6 +126,10 @@ const ReviewForm: React.FC = () => {
         recommendations: existingReview.recommendations || '',
         nextReviewDate: existingReview.nextReviewDate ? new Date(existingReview.nextReviewDate) : null
       });
+      
+      if (existingReview.evidenceFile) {
+        setCurrentEvidenceFile(existingReview.evidenceFile);
+      }
     }
   }, [existingReview]);
   
@@ -95,20 +145,36 @@ const ReviewForm: React.FC = () => {
     queryFn: usersService.getUsers
   });
   
-  // Create or update mutation
+  // Update the mutation to directly use actual data objects rather than FormData
   const mutation = useMutation({
     mutationFn: (data: FormData) => {
-      // Convert dates to ISO strings for API
+      // Prepare the API data
       const apiData = {
-        ...data,
+        controlId: data.controlId,
+        reviewerId: data.reviewerId,
         reviewDate: data.reviewDate?.toISOString(),
+        status: data.status,
+        evidence: data.evidence || '',
+        findings: data.findings,
+        recommendations: data.recommendations || '',
         nextReviewDate: data.nextReviewDate?.toISOString()
       };
       
+      console.log('Sending data to API:', apiData);
+      console.log('File included:', evidenceFile ? `${evidenceFile.name} (${evidenceFile.type})` : 'None');
+      
+      // For PDF files, do additional validation and logging
+      if (evidenceFile && evidenceFile.name.toLowerCase().endsWith('.pdf')) {
+        console.log('PDF file detected:', evidenceFile.name);
+        console.log('PDF file type:', evidenceFile.type);
+        console.log('PDF file size:', evidenceFile.size);
+      }
+      
+      // Send to the appropriate endpoint
       if (isEditing) {
-        return reviewsService.updateReview(id as string, apiData);
+        return reviewsService.updateReview(id as string, apiData, evidenceFile || undefined);
       } else {
-        return reviewsService.createReview(apiData);
+        return reviewsService.createReview(apiData, evidenceFile || undefined);
       }
     },
     onSuccess: () => {
@@ -117,6 +183,21 @@ const ReviewForm: React.FC = () => {
         queryClient.invalidateQueries({ queryKey: ['review', id] });
       }
       navigate('/reviews');
+    },
+    onError: (error: any) => {
+      console.error('API error:', error);
+      console.error('Response data:', error.response?.data);
+      
+      // Check if this is a file error from the server
+      if (error.response?.data?.message?.includes('File')) {
+        setFileError(error.response.data.error || 'Error uploading file');
+      } else if (error.response?.data?.error) {
+        // Show more detailed error messages
+        setFileError(error.response.data.error);
+      } else {
+        // Generic error
+        setFileError('Failed to upload file. Please try again.');
+      }
     }
   });
   
@@ -172,6 +253,132 @@ const ReviewForm: React.FC = () => {
     }
   };
   
+  const validateFile = (file: File): string | null => {
+    console.log('Validating file:', file.name, 'Type:', file.type, 'Size:', file.size);
+    
+    // Check file size
+    if (file.size > MAX_FILE_SIZE) {
+      return `File size exceeds 5MB limit (${(file.size / (1024 * 1024)).toFixed(2)}MB)`;
+    }
+    
+    // Handle PDF files specifically - some browsers might report application/pdf,
+    // others might report something else for PDFs
+    const isPDF = file.type === 'application/pdf' || 
+                  file.name.toLowerCase().endsWith('.pdf');
+                  
+    if (isPDF) {
+      if (!file.name.toLowerCase().endsWith('.pdf')) {
+        return 'File extension must be .pdf for PDF files';
+      }
+      // PDF handling is special-cased, so we can return null (no error) here
+      console.log('PDF file detected and validated successfully');
+      return null;
+    }
+    
+    // Check file type for non-PDF files
+    if (!ALLOWED_FILE_TYPES.includes(file.type)) {
+      console.log('File type not allowed:', file.type);
+      return 'File type not allowed. Please upload a PDF, Word, Excel, image, or text file';
+    }
+    
+    // Validate extension matches mime type for non-PDF files
+    const fileExtension = file.name.split('.').pop()?.toLowerCase();
+    
+    // Simple validation for common mismatch cases
+    if (file.type.includes('word') && !['doc', 'docx'].includes(fileExtension || '')) {
+      return 'File extension does not match file type';
+    }
+    
+    if (file.type.includes('excel') && !['xls', 'xlsx'].includes(fileExtension || '')) {
+      return 'File extension does not match file type';
+    }
+    
+    if (file.type.includes('jpeg') && !['jpg', 'jpeg'].includes(fileExtension || '')) {
+      return 'File extension does not match file type';
+    }
+    
+    if (file.type.includes('png') && fileExtension !== 'png') {
+      return 'File extension does not match file type';
+    }
+    
+    return null; // No error
+  };
+  
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setFileError(null);
+    
+    if (e.target.files && e.target.files.length > 0) {
+      const file = e.target.files[0];
+      console.log('File selected:', file.name, 'Type:', file.type, 'Size:', file.size);
+      
+      // Validate file
+      const validationError = validateFile(file);
+      if (validationError) {
+        console.error('File validation error:', validationError);
+        setFileError(validationError);
+        e.target.value = ''; // Clear the input
+        return;
+      }
+      
+      setEvidenceFile(file);
+      console.log('File accepted:', file.name);
+      
+      // Create a preview URL for the file
+      if (file) {
+        const url = URL.createObjectURL(file);
+        setFilePreviewUrl(url);
+      }
+      
+      // Clear error if there was one
+      if (errors.evidenceFile) {
+        setErrors((prev) => {
+          const newErrors = { ...prev };
+          delete newErrors.evidenceFile;
+          return newErrors;
+        });
+      }
+    }
+  };
+  
+  const handleFileUploadClick = () => {
+    if (fileInputRef.current) {
+      fileInputRef.current.click();
+    }
+  };
+  
+  const handleRemoveFile = () => {
+    setEvidenceFile(null);
+    setCurrentEvidenceFile(null);
+    
+    // Clean up preview URL
+    if (filePreviewUrl) {
+      URL.revokeObjectURL(filePreviewUrl);
+      setFilePreviewUrl(null);
+    }
+    
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+  
+  const handleDownloadFile = async () => {
+    if (isEditing && currentEvidenceFile) {
+      try {
+        const blob = await reviewsService.downloadEvidenceFile(id as string);
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = currentEvidenceFile;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+      } catch (error) {
+        console.error('Error downloading file:', error);
+      }
+    }
+  };
+  
   const validate = (): boolean => {
     const newErrors: Record<string, string> = {};
     
@@ -195,10 +402,35 @@ const ReviewForm: React.FC = () => {
     e.preventDefault();
     console.log('Form submission attempted', formData);
     
+    // Create a copy of form data to modify
+    const submissionData = { ...formData };
+    
+    // If no reviewer is selected, use the first admin/manager from the list
+    if (!submissionData.reviewerId && users && users.length > 0) {
+      const adminOrManager = users.find(user => ['admin', 'manager'].includes(user.role));
+      if (adminOrManager) {
+        console.log('No reviewer selected, using first admin/manager:', adminOrManager.id);
+        submissionData.reviewerId = adminOrManager.id;
+      }
+    }
+    
+    // If no control is selected, use the first control from the list
+    if (!submissionData.controlId && controls && controls.length > 0) {
+      console.log('No control selected, using first control:', controls[0].id);
+      submissionData.controlId = controls[0].id;
+    }
+    
+    // Debug logging for IDs
+    console.log('Submission data:', {
+      controlId: submissionData.controlId,
+      reviewerId: submissionData.reviewerId,
+      file: evidenceFile ? `${evidenceFile.name} (${evidenceFile.type})` : 'None'
+    });
+    
     if (validate()) {
-      console.log('Form validation passed, submitting to API', formData);
+      console.log('Form validation passed, submitting to API', submissionData);
       try {
-        mutation.mutate(formData);
+        mutation.mutate(submissionData);
         console.log('Mutation called successfully');
       } catch (error) {
         console.error('Error during mutation call:', error);
@@ -220,9 +452,10 @@ const ReviewForm: React.FC = () => {
       />
       
       <Paper sx={{ p: 3, mt: 3 }}>
-        {mutation.isError && (
+        {mutation.isError && !fileError && (
           <Alert severity="error" sx={{ mb: 2 }}>
-            An error occurred. Please try again.
+            <AlertTitle>Error</AlertTitle>
+            An error occurred submitting the form. Please try again.
           </Alert>
         )}
         
@@ -300,6 +533,119 @@ const ReviewForm: React.FC = () => {
                   ))}
                 </Select>
               </FormControl>
+            </Grid>
+            
+            <Grid item xs={12} sm={12} md={6}>
+              <Box sx={{ mb: 2 }}>
+                <Typography variant="subtitle1" sx={{ mb: 1 }}>
+                  Evidence File Upload
+                </Typography>
+                
+                <Box 
+                  sx={{ 
+                    border: '1px dashed',
+                    borderColor: fileError ? 'error.main' : 'divider',
+                    borderRadius: 1,
+                    p: 2,
+                    textAlign: 'center',
+                    mb: 2,
+                    backgroundColor: 'background.paper'
+                  }}
+                >
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    style={{ display: 'none' }}
+                    onChange={handleFileChange}
+                  />
+                  
+                  {!evidenceFile && !currentEvidenceFile ? (
+                    <Box>
+                      <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                        Drag and drop a file here, or
+                      </Typography>
+                      <Button variant="outlined" onClick={handleFileUploadClick}>
+                        Select File
+                      </Button>
+                      <Typography variant="caption" display="block" sx={{ mt: 1 }}>
+                        Allowed file types: PDF, Word, Excel, images, text files (Max: 5MB)
+                      </Typography>
+                    </Box>
+                  ) : (
+                    <Box>
+                      <Typography variant="body1" sx={{ mb: 1 }}>
+                        {evidenceFile ? evidenceFile.name : currentEvidenceFile}
+                      </Typography>
+                      <Box sx={{ display: 'flex', justifyContent: 'center', gap: 1 }}>
+                        <Button 
+                          variant="outlined" 
+                          color="error" 
+                          size="small" 
+                          onClick={handleRemoveFile}
+                        >
+                          Remove
+                        </Button>
+                        {isEditing && currentEvidenceFile && !evidenceFile && (
+                          <Button 
+                            variant="outlined" 
+                            size="small" 
+                            onClick={handleDownloadFile}
+                          >
+                            Download
+                          </Button>
+                        )}
+                      </Box>
+                    </Box>
+                  )}
+                </Box>
+                
+                {fileError && (
+                  <Typography color="error" variant="caption">
+                    {fileError}
+                  </Typography>
+                )}
+                
+                {/* File Preview Section */}
+                {(evidenceFile || (isEditing && currentEvidenceFile)) && (
+                  <Box sx={{ mt: 2 }}>
+                    <Typography variant="subtitle1" sx={{ mb: 1 }}>
+                      File Preview
+                    </Typography>
+                    
+                    {evidenceFile && filePreviewUrl ? (
+                      <Box sx={{ maxHeight: '300px', overflow: 'auto' }}>
+                        {evidenceFile.type.includes('image') ? (
+                          <img 
+                            src={filePreviewUrl} 
+                            alt="Evidence preview" 
+                            style={{ maxWidth: '100%', maxHeight: '300px' }} 
+                          />
+                        ) : evidenceFile.name.toLowerCase().endsWith('.pdf') ? (
+                          <Box sx={{ height: '300px', border: '1px solid #ccc' }}>
+                            <iframe 
+                              src={filePreviewUrl} 
+                              title="PDF preview"
+                              width="100%"
+                              height="100%"
+                              style={{ border: 'none' }}
+                            />
+                          </Box>
+                        ) : (
+                          <Typography variant="body2" color="text.secondary">
+                            Preview not available for this file type. The file will be uploaded when you submit the form.
+                          </Typography>
+                        )}
+                      </Box>
+                    ) : isEditing && currentEvidenceFile && !evidenceFile ? (
+                      <FilePreview
+                        reviewId={id as string}
+                        filename={currentEvidenceFile}
+                        downloadFile={() => reviewsService.downloadEvidenceFile(id as string)}
+                      />
+                    ) : null}
+                  </Box>
+                )}
+              </Box>
             </Grid>
             
             <Grid item xs={12}>

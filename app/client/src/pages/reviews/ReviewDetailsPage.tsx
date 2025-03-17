@@ -21,7 +21,8 @@ import {
 import {
   Edit as EditIcon,
   ArrowBack as ArrowBackIcon,
-  Delete as DeleteIcon
+  Delete as DeleteIcon,
+  FileDownload as FileDownloadIcon
 } from '@mui/icons-material';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
@@ -29,6 +30,7 @@ import { format } from 'date-fns';
 import { reviewsService } from '../../services/api';
 import { Review } from '../../types';
 import PageHeader from '../../components/PageHeader';
+import FilePreview from '../../components/FilePreview';
 
 const ReviewDetailsPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -260,6 +262,20 @@ const ReviewDetailsPage: React.FC = () => {
                     {review.evidence}
                   </Typography>
                 </Paper>
+              </Grid>
+            )}
+
+            {/* Evidence File */}
+            {review.evidenceFile && (
+              <Grid item xs={12}>
+                <Typography variant="h6" gutterBottom sx={{ mt: 2 }}>
+                  Evidence File
+                </Typography>
+                <FilePreview 
+                  reviewId={review.id}
+                  filename={review.evidenceFile}
+                  downloadFile={() => reviewsService.downloadEvidenceFile(review.id)}
+                />
               </Grid>
             )}
 
